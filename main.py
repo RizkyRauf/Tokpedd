@@ -1,10 +1,8 @@
 from typing import List, Dict
 import asyncio
-import json
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from lib.tokopedia_scraper import TokopediaScraper
-from lib.tokopedia_product import ProductItem
 from lib.tokopedia_ulasan import UlasanRequest
 from lib.utils import save_to_json, measure_time, load_json, save_to_json_ulasan
 import requests
@@ -20,7 +18,7 @@ def scrape_star_ratings(item: dict) -> dict:
             return item
         soup = BeautifulSoup(resp.text, 'lxml')
 
-        count_ulasan = item.get('count_review', 0)
+        count_ulasan = item.get('count_review', 0) or 0
         rating_5 = rating_4 = rating_3 = rating_2 = rating_1 = 0
 
         ulasan_el = soup.select_one('div.css-a21zsk div p')
@@ -49,12 +47,7 @@ def scrape_star_ratings(item: dict) -> dict:
             'rating_1_item': str(rating_1),
         })
     except Exception:
-        item.setdefault('count_ulasan_item', item.get('count_review', 0))
-        item.setdefault('rating_5_item', '0')
-        item.setdefault('rating_4_item', '0')
-        item.setdefault('rating_3_item', '0')
-        item.setdefault('rating_2_item', '0')
-        item.setdefault('rating_1_item', '0')
+        pass
     return item
 
 
@@ -78,42 +71,58 @@ def proses_ulasan_request(folder_path, nama_data_json):
     ulasan_request = UlasanRequest()
 
     if not load_json_data:
-        return []
+        return [], []
 
     detailed_data_ulasan = []
 
     def process_item(item):
         id_for_ulasan = item.get('id')
-        count_ulasan = item.get('count_ulasan_item', 0) or item.get('count_review', 0)
-        if not id_for_ulasan or not count_ulasan:
-            return None
+        if not id_for_ulasan:
+            return None, item
+
+        count_ulasan = item.get('count_ulasan_item', 0) or item.get('count_review', 0) or 10
         ulasan_data = ulasan_request.request_ulasan(id_for_ulasan, count_ulasan)
         if ulasan_data:
+            ratings = [r.get('Rating', 0) for r in ulasan_data if r.get('Rating')]
+            if ratings:
+                item['count_ulasan_item'] = len(ratings)
+                item['rating_5_item'] = str(sum(1 for r in ratings if r == 5))
+                item['rating_4_item'] = str(sum(1 for r in ratings if r == 4))
+                item['rating_3_item'] = str(sum(1 for r in ratings if r == 3))
+                item['rating_2_item'] = str(sum(1 for r in ratings if r == 2))
+                item['rating_1_item'] = str(sum(1 for r in ratings if r == 1))
+
             return {
                 'ID Product': id_for_ulasan,
                 'Name Product': item.get('product_name'),
                 'Link Product': item.get('link'),
                 'ulasan': ulasan_data,
-            }
-        return None
+            }, item
+        return None, item
 
     with ThreadPoolExecutor(max_workers=5) as executor:
         futures = [executor.submit(process_item, item) for item in load_json_data]
-        for future in as_completed(futures):
-            result = future.result()
-            if result:
-                detailed_data_ulasan.append(result)
+        results = [future.result() for future in as_completed(futures)]
 
-    return detailed_data_ulasan
+    detailed_data_ulasan = [r[0] for r in results if r[0] is not None]
+    updated_items = [r[1] for r in results]
+
+    return detailed_data_ulasan, updated_items
 
 
 if __name__ == "__main__":
     keyword = "esp32"
 
     scraped_data = asyncio.run(proses_get_url(keyword))
-    nama_data_json = f"full_data_{keyword.replace(' ', '_')}.json"
     folder_path = "./data_json"
+    nama_data_json = f"full_data_{keyword.replace(' ', '_')}.json"
     save_to_json(scraped_data, nama_data_json, folder_path)
 
-    data_ulasan = proses_ulasan_request(folder_path, nama_data_json)
+    data_ulasan, updated_items = proses_ulasan_request(folder_path, nama_data_json)
     save_to_json_ulasan(data_ulasan, f'data_ulasan_{keyword.replace(" ", "_")}.json', folder_path)
+
+    import os, json
+    full_path = os.path.join(folder_path, nama_data_json)
+    with open(full_path, 'w', encoding='utf-8') as f:
+        json.dump(updated_items, f, ensure_ascii=False, indent=4)
+    print(f"Data updated dengan rating dari ulasan di {full_path}")
