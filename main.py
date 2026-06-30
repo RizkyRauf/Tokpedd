@@ -3,6 +3,8 @@ import asyncio
 import re
 import logging
 import os
+import random
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from lib.tokopedia_scraper import TokopediaScraper
 from lib.tokopedia_ulasan import UlasanRequest
@@ -37,6 +39,7 @@ _session = _create_session()
 
 
 def scrape_star_ratings(item: dict) -> dict:
+    time.sleep(random.uniform(0.2, 0.6))  # jeda kecil acak agar tidak membebani server
     try:
         resp = _session.get(item['link'], timeout=30, headers={
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
@@ -79,12 +82,12 @@ def scrape_star_ratings(item: dict) -> dict:
 
 
 @measure_time
-async def proses_get_url(keyword: str) -> List[Dict]:
+async def proses_get_url(keyword: str, max_pages: int = 5) -> List[Dict]:
     print("Mulai scrape data ke tokopedia....")
     tokopedia = TokopediaScraper()
-    products_data = await tokopedia.scraper_tokped(keyword)
+    products_data = await tokopedia.scraper_tokped(keyword, max_pages=max_pages)
 
-    with ThreadPoolExecutor(max_workers=15) as ex:
+    with ThreadPoolExecutor(max_workers=8) as ex:
         products_data = list(ex.map(scrape_star_ratings, products_data))
 
     print("Selesai scrape data ke tokopedia.... dan mengambil data sebanyak", len(products_data))
