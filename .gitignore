@@ -6,3 +6,4 @@ sanbox/
 data_json/
 data_raw/
 venv/
+logs/
