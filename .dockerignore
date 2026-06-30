@@ -1,0 +1,15 @@
+data_json/
+data_raw/
+logs/
+__pycache__/
+.git/
+.gitignore
+*.pyc
+venv/
+venvtokopedia/
+output/
+sanbox/
+raw_data_inspect.json
+inspect_raw_data.py
+tests/
+.pytest_cache/

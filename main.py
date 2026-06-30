@@ -4,14 +4,14 @@ import re
 import logging
 import os
 import random
-import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from lib.tokopedia_scraper import TokopediaScraper
-from lib.tokopedia_ulasan import UlasanRequest
-from lib.utils import save_to_json, measure_time, load_json, save_to_json_ulasan
+import argparse
+import aiohttp
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+from lib.tokopedia_scraper import TokopediaScraper
+from lib.tokopedia_ulasan import UlasanRequest
+from lib.utils import save_to_json, save_to_csv, save_to_excel, measure_time, load_json, save_to_json_ulasan
 from bs4 import BeautifulSoup
 
 os.makedirs("logs", exist_ok=True)
@@ -25,25 +25,26 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+
 
 def _create_session():
     session = requests.Session()
     retry = Retry(total=3, backoff_factor=1, status_forcelist=[500, 502, 503, 504])
-    adapter = HTTPAdapter(max_retries=retry, pool_connections=20, pool_maxsize=20)
+    adapter = HTTPAdapter(max_retries=retry, pool_connections=10, pool_maxsize=10)
     session.mount("https://", adapter)
     session.mount("http://", adapter)
     return session
 
 
-_session = _create_session()
+_sync_session = _create_session()
 
 
 def scrape_star_ratings(item: dict) -> dict:
-    time.sleep(random.uniform(0.2, 0.6))  # jeda kecil acak agar tidak membebani server
+    import time as _time
+    _time.sleep(random.uniform(0.3, 0.8))
     try:
-        resp = _session.get(item['link'], timeout=30, headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-        })
+        resp = _sync_session.get(item['link'], timeout=30, headers={"User-Agent": UA})
         if resp.status_code != 200:
             return item
         soup = BeautifulSoup(resp.text, 'lxml')
@@ -83,6 +84,8 @@ def scrape_star_ratings(item: dict) -> dict:
 
 @measure_time
 async def proses_get_url(keyword: str, max_pages: int = 5) -> List[Dict]:
+    from concurrent.futures import ThreadPoolExecutor
+
     print("Mulai scrape data ke tokopedia....")
     tokopedia = TokopediaScraper()
     products_data = await tokopedia.scraper_tokped(keyword, max_pages=max_pages)
@@ -95,7 +98,7 @@ async def proses_get_url(keyword: str, max_pages: int = 5) -> List[Dict]:
 
 
 @measure_time
-def proses_ulasan_request(folder_path, nama_data_json):
+async def proses_ulasan_request(folder_path, nama_data_json):
     file_path = f"{folder_path}/{nama_data_json}"
     load_json_data = load_json(file_path)
     ulasan_request = UlasanRequest()
@@ -103,36 +106,37 @@ def proses_ulasan_request(folder_path, nama_data_json):
     if not load_json_data:
         return [], []
 
-    detailed_data_ulasan = []
+    semaphore = asyncio.Semaphore(5)
 
-    def process_item(item):
-        id_for_ulasan = item.get('id')
-        if not id_for_ulasan:
+    async def process_item(session, item):
+        async with semaphore:
+            id_for_ulasan = item.get('id')
+            if not id_for_ulasan:
+                return None, item
+
+            count_ulasan = item.get('count_ulasan_item', 0) or item.get('count_review', 0) or 10
+            ulasan_data = await ulasan_request.request_ulasan(session, id_for_ulasan, count_ulasan)
+            if ulasan_data:
+                ratings = [r.get('Rating', 0) for r in ulasan_data if r.get('Rating')]
+                if ratings:
+                    item['count_ulasan_item'] = len(ratings)
+                    item['rating_5_item'] = str(sum(1 for r in ratings if r == 5))
+                    item['rating_4_item'] = str(sum(1 for r in ratings if r == 4))
+                    item['rating_3_item'] = str(sum(1 for r in ratings if r == 3))
+                    item['rating_2_item'] = str(sum(1 for r in ratings if r == 2))
+                    item['rating_1_item'] = str(sum(1 for r in ratings if r == 1))
+
+                return {
+                    'ID Product': id_for_ulasan,
+                    'Name Product': item.get('product_name'),
+                    'Link Product': item.get('link'),
+                    'ulasan': ulasan_data,
+                }, item
             return None, item
 
-        count_ulasan = item.get('count_ulasan_item', 0) or item.get('count_review', 0) or 10
-        ulasan_data = ulasan_request.request_ulasan(id_for_ulasan, count_ulasan)
-        if ulasan_data:
-            ratings = [r.get('Rating', 0) for r in ulasan_data if r.get('Rating')]
-            if ratings:
-                item['count_ulasan_item'] = len(ratings)
-                item['rating_5_item'] = str(sum(1 for r in ratings if r == 5))
-                item['rating_4_item'] = str(sum(1 for r in ratings if r == 4))
-                item['rating_3_item'] = str(sum(1 for r in ratings if r == 3))
-                item['rating_2_item'] = str(sum(1 for r in ratings if r == 2))
-                item['rating_1_item'] = str(sum(1 for r in ratings if r == 1))
-
-            return {
-                'ID Product': id_for_ulasan,
-                'Name Product': item.get('product_name'),
-                'Link Product': item.get('link'),
-                'ulasan': ulasan_data,
-            }, item
-        return None, item
-
-    with ThreadPoolExecutor(max_workers=5) as executor:
-        futures = [executor.submit(process_item, item) for item in load_json_data]
-        results = [future.result() for future in as_completed(futures)]
+    async with aiohttp.ClientSession() as session:
+        tasks = [process_item(session, item) for item in load_json_data]
+        results = await asyncio.gather(*tasks)
 
     detailed_data_ulasan = [r[0] for r in results if r[0] is not None]
     updated_items = [r[1] for r in results]
@@ -141,18 +145,34 @@ def proses_ulasan_request(folder_path, nama_data_json):
 
 
 if __name__ == "__main__":
-    keyword = "esp32"
+    parser = argparse.ArgumentParser(description="Tokpedd — Tokopedia product scraper")
+    parser.add_argument("-k", "--keyword", default="esp32", help="Keyword pencarian (default: esp32)")
+    parser.add_argument("--max-pages", type=int, default=5, help="Jumlah halaman maksimal (default: 5)")
+    parser.add_argument("--output-dir", default="./data_json", help="Folder output (default: ./data_json)")
+    parser.add_argument("--format", choices=["json", "csv", "xlsx"], default="json", help="Format output (default: json)")
+    args = parser.parse_args()
 
-    scraped_data = asyncio.run(proses_get_url(keyword))
-    folder_path = "./data_json"
-    nama_data_json = f"full_data_{keyword.replace(' ', '_')}.json"
-    save_to_json(scraped_data, nama_data_json, folder_path)
+    keyword = args.keyword
+    max_pages = args.max_pages
+    output_dir = args.output_dir
 
-    data_ulasan, updated_items = proses_ulasan_request(folder_path, nama_data_json)
-    save_to_json_ulasan(data_ulasan, f'data_ulasan_{keyword.replace(" ", "_")}.json', folder_path)
+    scraped_data = asyncio.run(proses_get_url(keyword, max_pages=max_pages))
+    ext = {"json": ".json", "csv": ".csv", "xlsx": ".xlsx"}[args.format]
+    nama_data_json = f"full_data_{keyword.replace(' ', '_')}{ext}"
 
-    import os, json
-    full_path = os.path.join(folder_path, nama_data_json)
-    with open(full_path, 'w', encoding='utf-8') as f:
-        json.dump(updated_items, f, ensure_ascii=False, indent=4)
-    print(f"Data updated dengan rating dari ulasan di {full_path}")
+    if args.format == "json":
+        save_to_json(scraped_data, nama_data_json, output_dir)
+    elif args.format == "csv":
+        save_to_csv(scraped_data, nama_data_json, output_dir)
+    elif args.format == "xlsx":
+        save_to_excel(scraped_data, nama_data_json, output_dir)
+
+    data_ulasan, updated_items = asyncio.run(proses_ulasan_request(output_dir, f"full_data_{keyword.replace(' ', '_')}.json"))
+    save_to_json_ulasan(data_ulasan, f'data_ulasan_{keyword.replace(" ", "_")}.json', output_dir)
+
+    if args.format == "json":
+        import json
+        full_path = os.path.join(output_dir, nama_data_json)
+        with open(full_path, 'w', encoding='utf-8') as f:
+            json.dump(updated_items, f, ensure_ascii=False, indent=4)
+        print(f"Data updated dengan rating dari ulasan di {full_path}")

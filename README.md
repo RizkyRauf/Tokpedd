@@ -1,43 +1,31 @@
-# Tokopedia Scraper
+# Tokpedd
 
-## Deskripsi
-
-Scraping data produk dan ulasan dari Tokopedia menggunakan GraphQL API dan BeautifulSoup.
+Scraping data produk dan ulasan dari Tokopedia menggunakan GraphQL API, aiohttp, dan BeautifulSoup.
 
 ## Struktur Project
 
 ```
-├── data_json/
-│   ├── full_data_<keyword>.json
-│   └── data_ulasan_<keyword>.json
+├── data_json/                  # Hasil scraping
+├── logs/                       # Log file
 ├── lib/
-│   └── text_query/
-│   │   ├── query_items.txt
+│   ├── text_query/
 │   │   ├── query_scraper.txt
-│   │   └── query_ulasan.txt
-│   ├── tokopedia_scraper.py
-│   ├── tokopedia_product.py
-│   ├── tokopedia_ulasan.py
-│   └── utils.py
-├── .gitignore
+│   │   ├── query_ulasan.txt
+│   │   └── query_items.txt
+│   ├── tokopedia_scraper.py    # GraphQL search API (aiohttp)
+│   ├── tokopedia_ulasan.py     # GraphQL review API (aiohttp)
+│   ├── tokopedia_product.py    # GraphQL PDP API (belum aktif)
+│   └── utils.py                # Fungsi bantuan
+├── tests/                      # Unit test
+├── Dockerfile
+├── .dockerignore
 ├── main.py
-├── README.md
-└── requirements.txt
+├── requirements.txt
+└── README.md
 ```
-
-## Modul
-
-- `data_json/`: Hasil scraping dalam format JSON.
-- `lib/tokopedia_scraper.py`: Mengumpulkan data produk dari Tokopedia via GraphQL search API. Mengembalikan id, nama, harga, rating, kategori, toko, dll.
-- `lib/tokopedia_product.py`: (Opsional) Mengumpulkan detail produk via GraphQL PDP API — **saat ini endpoint membutuhkan autentikasi**.
-- `lib/tokopedia_ulasan.py`: Mengumpulkan ulasan produk via GraphQL API.
-- `lib/utils.py`: Fungsi bantuan (save/load JSON, pengukur waktu).
-- `main.py`: Skrip utama yang mengkoordinasikan scraping dan penyimpanan data.
 
 ## Instalasi
 
-1. Python 3.7+.
-2. Install dependensi:
 ```bash
 pip install -r requirements.txt
 ```
@@ -45,18 +33,57 @@ pip install -r requirements.txt
 ## Penggunaan
 
 ```bash
+# Default (keyword: esp32, 5 halaman)
 python main.py
+
+# Custom keyword & halaman
+python main.py -k "laptop gaming" --max-pages 3
+
+# Export ke CSV
+python main.py -k "esp32" --max-pages 5 --format csv
+
+# Export ke Excel
+python main.py -k "esp32" --format xlsx
+
+# Custom output directory
+python main.py -k "esp32" --output-dir ./hasil
 ```
 
-Ubah keyword di `main.py` baris `keyword = "esp32"` sesuai kebutuhan.
+### Argumen CLI
 
-## Performa
+| Argumen | Short | Default | Deskripsi |
+|---------|-------|---------|-----------|
+| `--keyword` | `-k` | `esp32` | Keyword pencarian |
+| `--max-pages` | | `5` | Jumlah halaman maksimal (60 produk/halaman) |
+| `--output-dir` | | `./data_json` | Folder output |
+| `--format` | | `json` | Format output: `json`, `csv`, `xlsx` |
 
-- Scraping 60 produk dari GraphQL search API: **~10 detik**
-- Scraping ulasan: tergantung jumlah ulasan per produk
-- Tidak menggunakan Playwright/browser — cepat dan ringan
+## Docker
+
+```bash
+docker build -t tokpedd .
+
+docker run --rm -v $(pwd)/data_json:/app/data_json tokpedd
+
+docker run --rm -v $(pwd)/data_json:/app/data_json tokpedd -k "laptop gaming" --max-pages 3 --format csv
+```
+
+## Testing
+
+```bash
+python -m pytest tests/ -v
+```
+
+## Modul
+
+- **`lib/tokopedia_scraper.py`** — Scraping data produk via GraphQL search API (aiohttp async). Pagination otomatis berdasarkan `totalData`.
+- **`lib/tokopedia_ulasan.py`** — Scraping ulasan produk via GraphQL review API (aiohttp async).
+- **`lib/tokopedia_product.py`** — Detail produk via GraphQL PDP API (belum aktif, endpoint butuh autentikasi).
+- **`lib/utils.py`** — Fungsi bantuan: save/load JSON, export CSV/Excel, pengukur waktu.
+- **`main.py`** — Skrip utama yang mengkoordinasikan scraping, rating, ulasan, dan penyimpanan data.
 
 ## Catatan
 
-- Star ratings per-bintang (rating_5..1) tidak tersedia di search API dan membutuhkan rendering JavaScript (Playwright) jika diperlukan.
-- Endpoint PDP detail produk saat ini membutuhkan header autentikasi tertentu dan tidak dapat diakses via requests biasa.
+- Product page scraping (rating per-bintang) masih pakai `requests` karena Tokopedia memblokir aiohttp di endpoint HTML.
+- GraphQL API (search + ulasan) sudah menggunakan `aiohttp` async.
+- Star ratings per-bintang diambil dari HTML product page dengan BeautifulSoup, bukan dari GraphQL search API.

@@ -128,3 +128,23 @@ def save_to_json_ulasan(data, file_name, output_dir='.'):
     except Exception as e:
         print(f"Gagal menyimpan data ke berkas JSON '{file_name}'. Error: {str(e)}")
         return False
+
+
+def save_to_csv(data, filename, folder='output'):
+    import pandas as pd
+    if not os.path.exists(folder):
+        os.makedirs(folder)
+    file_path = os.path.join(folder, filename)
+    df = pd.DataFrame(data)
+    df.to_csv(file_path, index=False, encoding='utf-8')
+    print(f"Data berhasil disimpan ke {file_path}")
+
+
+def save_to_excel(data, filename, folder='output'):
+    import pandas as pd
+    if not os.path.exists(folder):
+        os.makedirs(folder)
+    file_path = os.path.join(folder, filename)
+    df = pd.DataFrame(data)
+    df.to_excel(file_path, index=False, engine='openpyxl')
+    print(f"Data berhasil disimpan ke {file_path}")
