@@ -1,3 +1,7 @@
+# STATUS: NOT IMPLEMENTED — endpoint requires authentication
+# Modul ini tidak dipanggil dari main.py. Endpoint GraphQL PDPGetLayoutQuery
+# membutuhkan autentikasi yang belum terimplementasi.
+
 import requests
 import os
 import logging

@@ -1,17 +1,44 @@
 from typing import List, Dict
 import asyncio
 import re
+import logging
+import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from lib.tokopedia_scraper import TokopediaScraper
 from lib.tokopedia_ulasan import UlasanRequest
 from lib.utils import save_to_json, measure_time, load_json, save_to_json_ulasan
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from bs4 import BeautifulSoup
+
+os.makedirs("logs", exist_ok=True)
+logging.basicConfig(
+    level=logging.WARNING,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler("logs/tokpedd.log", encoding="utf-8"),
+        logging.StreamHandler(),
+    ],
+)
+logger = logging.getLogger(__name__)
+
+
+def _create_session():
+    session = requests.Session()
+    retry = Retry(total=3, backoff_factor=1, status_forcelist=[500, 502, 503, 504])
+    adapter = HTTPAdapter(max_retries=retry, pool_connections=20, pool_maxsize=20)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
+
+
+_session = _create_session()
 
 
 def scrape_star_ratings(item: dict) -> dict:
     try:
-        resp = requests.get(item['link'], timeout=15, headers={
+        resp = _session.get(item['link'], timeout=30, headers={
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
         })
         if resp.status_code != 200:
@@ -46,8 +73,8 @@ def scrape_star_ratings(item: dict) -> dict:
             'rating_3_item': str(rating_3), 'rating_2_item': str(rating_2),
             'rating_1_item': str(rating_1),
         })
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Gagal scrape rating untuk %s: %s", item.get('link', ''), e)
     return item
 
 

@@ -30,9 +30,14 @@ def save_to_json(data, filename, folder='output'):
     # Gabungkan data baru dengan data yang ada dan hilangkan duplikasi
     combined_data = existing_data + data
 
-    # Menggunakan set untuk menghilangkan duplikasi dengan cara mengubah dictionary menjadi string
-    unique_data = list({json.dumps(d, sort_keys=True) for d in combined_data})
-    unique_data = [json.loads(d) for d in unique_data]
+    # Dedup dengan menjaga urutan
+    seen = set()
+    unique_data = []
+    for d in combined_data:
+        key = json.dumps(d, sort_keys=True)
+        if key not in seen:
+            seen.add(key)
+            unique_data.append(d)
 
     # Simpan data gabungan yang unik ke berkas JSON
     with open(file_path, 'w', encoding='utf-8') as f:

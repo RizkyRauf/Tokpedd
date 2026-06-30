@@ -1,30 +1,18 @@
 import asyncio
 import aiohttp
 import os
-import re
 from urllib.parse import urlparse, urlunparse
-from playwright.async_api import Page, TimeoutError as PlaywrightTimeoutError, Error as PlaywrightError
+
 
 class TokopediaScraper:
     """
     Kelas TokopediaScraper untuk melakukan scraping data produk dari Tokopedia menggunakan 
-    GraphQL API dan Playwright.
+    GraphQL API.
     """
 
     def __init__(self) -> None:
-        """
-        Inisialisasi instance TokopediaScraper dengan user agent, URL produk, dan XPath.
-        """
-        self.user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, seperti Gecko) Chrome/126.0.0.0 Safari/537.36"
+        self.user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
         self.product_url = "https://gql.tokopedia.com/graphql/ShopProducts"
-        self.xpath = {
-            'ulasan': "//div[@class='css-a21zsk ']/div/p",
-            '5': "//table[@class='css-8atqhb' or @title='jumlah rating']/tbody/tr[1][@class='css-1q2xtcf']/td[2]/p",
-            '4': "//table[@class='css-8atqhb' or @title='jumlah rating']/tbody/tr[2][@class='css-1q2xtcf']/td[2]/p",
-            '3': "//table[@class='css-8atqhb' or @title='jumlah rating']/tbody/tr[3][@class='css-1q2xtcf']/td[2]/p",
-            '2': "//table[@class='css-8atqhb' or @title='jumlah rating']/tbody/tr[4][@class='css-1q2xtcf']/td[2]/p",
-            '1': "//table[@class='css-8atqhb' or @title='jumlah rating']/tbody/tr[5][@class='css-1q2xtcf']/td[2]/p",
-        }
         
     async def read_query_items(self):
         """
@@ -137,32 +125,3 @@ class TokopediaScraper:
     async def fetch_data(self, session, payload):
         async with session.post(self.product_url, headers=await self.headers(), json=payload, timeout=30) as response:
             return await response.json()
-    
-    async def extract_data_rating(self, page: Page):
-        async def extract_data_ulasan(timeout=5000):
-            try:
-                locator = page.locator(self.xpath['ulasan'])
-                await locator.wait_for(state="visible", timeout=timeout)
-                ulasan_locator = await locator.inner_text()
-                ulasan_data = re.search(r'(\d+) ulasan', ulasan_locator)
-                return int(ulasan_data.group(1)) if ulasan_data else 0
-            except (PlaywrightTimeoutError, PlaywrightError, Exception):
-                return 0
-            
-        async def extract_data_rating(rating_key, timeout=5000):
-            try:
-                locator = page.locator(self.xpath[rating_key])
-                await locator.wait_for(state="visible", timeout=timeout)
-                rating_locator = await locator.inner_text()
-                return int(rating_locator)
-            except (PlaywrightTimeoutError, PlaywrightError, Exception):
-                return 0
-
-        ulasan_data = await extract_data_ulasan()
-        rating_5 = await extract_data_rating('5')
-        rating_4 = await extract_data_rating('4')
-        rating_3 = await extract_data_rating('3')
-        rating_2 = await extract_data_rating('2')
-        rating_1 = await extract_data_rating('1')
-
-        return ulasan_data, rating_5, rating_4, rating_3, rating_2, rating_1
