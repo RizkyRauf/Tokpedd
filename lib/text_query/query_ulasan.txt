@@ -1,0 +1,25 @@
+query productReviewList($productID: String!, $page: Int!, $limit: Int!, $sortBy: String, $filterBy: String) {
+    productrevGetProductReviewList(productID: $productID, page: $page, limit: $limit, sortBy: $sortBy, filterBy: $filterBy) {
+        productID
+        list {
+            id: feedbackID
+            message
+            productRating
+            reviewCreateTime
+            user {
+                userID
+                fullName
+                url
+                __typename
+            }
+            __typename
+        }
+        shop {
+            shopID
+            name
+            url
+            __typename
+        }
+        __typename
+    }
+}

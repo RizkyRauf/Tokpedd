@@ -1,0 +1,8 @@
+venvtokopedia/
+downloaded_files/
+__pycache__/
+output/
+sanbox/
+data_json/
+data_raw/
+venv/
