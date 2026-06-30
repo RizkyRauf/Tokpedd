@@ -1,5 +1,6 @@
 import asyncio
 import aiohttp
+import math
 import os
 from urllib.parse import urlparse, urlunparse
 
@@ -26,17 +27,6 @@ class TokopediaScraper:
             query_items = file.read()
         return query_items
         
-    async def jumlah_data(self):
-        """
-        Menghitung jumlah halaman dan data yang akan di-scrape.
-
-        Returns:
-            tuple: Jumlah data dan jumlah halaman.
-        """
-        jumlah_page = 1
-        jumlah_data = jumlah_page * 20
-        return jumlah_data, jumlah_page
-    
     async def headers(self):
         """
         Mengembalikan headers untuk permintaan HTTP.
@@ -86,39 +76,67 @@ class TokopediaScraper:
         }   
         return payload
 
-    async def scraper_tokped(self, keyword: str):
+    def _parse_products(self, result, products_data):
+        products = result['data']['ace_search_product_v4']['data']['products']
+        for product in products:
+            links_url = product.get('url', '')
+            clean_url = ''
+            if links_url:
+                parsed_url = urlparse(links_url)
+                clean_url = urlunparse(parsed_url._replace(query=""))
+
+            products_data.append({
+                'id': str(product.get('id', '')),
+                'city': product.get('shop', {}).get('city', ''),
+                'link': clean_url,
+                'product_name': product.get('name', ''),
+                'price': product.get('priceStr', '') or str(product.get('price', '')),
+                'rating': str(product.get('rating', '') or product.get('ratingAverage', '') or ''),
+                'count_review': product.get('countReview', 0),
+                'category': product.get('categoryBreadcrumb', '') or product.get('categoryName', ''),
+                'shop_name': product.get('shop', {}).get('name', ''),
+            })
+
+    async def scraper_tokped(self, keyword: str, max_pages: int = 5):
+        """
+        Scrape produk dari Tokopedia untuk sebuah keyword.
+
+        Jumlah halaman dihitung secara dinamis berdasarkan field `totalData`
+        yang dikembalikan API pada permintaan halaman pertama, dibatasi oleh
+        `max_pages` agar tidak membebani server untuk keyword dengan hasil
+        sangat banyak.
+
+        Args:
+            keyword (str): Kata kunci pencarian.
+            max_pages (int): Batas maksimum halaman yang akan diambil (60 produk/halaman).
+
+        Returns:
+            list: Daftar produk hasil scraping.
+        """
         print("Mulai scrape data ke tokopedia....")
-        jml_data, jml_page = await self.jumlah_data()  
         products_data = []
-        tasks = []
+
         async with aiohttp.ClientSession() as session:
-            for page, data in zip(range(1, jml_page + 1), range(0, jml_data, 60)):
-                payload = await self.load_json(page=page, keyword=keyword, data=data)
-                task = asyncio.create_task(self.fetch_data(session, payload))
-                tasks.append(task)
-                
-            results = await asyncio.gather(*tasks)
-            
-            for result in results:
-                products = result['data']['ace_search_product_v4']['data']['products']
-                for product in products:
-                    links_url = product.get('url', '')
-                    clean_url = ''
-                    if links_url:
-                        parsed_url = urlparse(links_url)
-                        clean_url = urlunparse(parsed_url._replace(query=""))
-                    
-                    products_data.append({
-                        'id': str(product.get('id', '')),
-                        'city': product.get('shop', {}).get('city', ''),
-                        'link': clean_url,
-                        'product_name': product.get('name', ''),
-                        'price': product.get('priceStr', '') or str(product.get('price', '')),
-                        'rating': str(product.get('rating', '') or product.get('ratingAverage', '') or ''),
-                        'count_review': product.get('countReview', 0),
-                        'category': product.get('categoryBreadcrumb', '') or product.get('categoryName', ''),
-                        'shop_name': product.get('shop', {}).get('name', ''),
-                    })
+            first_payload = await self.load_json(page=1, keyword=keyword, data=0)
+            first_result = await self.fetch_data(session, first_payload)
+
+            header = first_result.get('data', {}).get('ace_search_product_v4', {}).get('header', {})
+            total_data = header.get('totalData', 0) or 0
+            total_pages = max(1, min(math.ceil(total_data / 60), max_pages)) if total_data else 1
+            print(f"Total hasil ditemukan: {total_data}, mengambil {total_pages} halaman")
+
+            self._parse_products(first_result, products_data)
+
+            if total_pages > 1:
+                tasks = []
+                for page in range(2, total_pages + 1):
+                    data_start = (page - 1) * 60
+                    payload = await self.load_json(page=page, keyword=keyword, data=data_start)
+                    tasks.append(asyncio.create_task(self.fetch_data(session, payload)))
+
+                results = await asyncio.gather(*tasks)
+                for result in results:
+                    self._parse_products(result, products_data)
 
         return products_data
     
