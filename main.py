@@ -157,22 +157,21 @@ if __name__ == "__main__":
     output_dir = args.output_dir
 
     scraped_data = asyncio.run(proses_get_url(keyword, max_pages=max_pages))
-    ext = {"json": ".json", "csv": ".csv", "xlsx": ".xlsx"}[args.format]
-    nama_data_json = f"full_data_{keyword.replace(' ', '_')}{ext}"
+    base_name = f"full_data_{keyword.replace(' ', '_')}"
+    json_path = os.path.join(output_dir, f"{base_name}.json")
 
-    if args.format == "json":
-        save_to_json(scraped_data, nama_data_json, output_dir)
-    elif args.format == "csv":
-        save_to_csv(scraped_data, nama_data_json, output_dir)
-    elif args.format == "xlsx":
-        save_to_excel(scraped_data, nama_data_json, output_dir)
+    save_to_json(scraped_data, f"{base_name}.json", output_dir)
 
-    data_ulasan, updated_items = asyncio.run(proses_ulasan_request(output_dir, f"full_data_{keyword.replace(' ', '_')}.json"))
+    data_ulasan, updated_items = asyncio.run(proses_ulasan_request(output_dir, f"{base_name}.json"))
     save_to_json_ulasan(data_ulasan, f'data_ulasan_{keyword.replace(" ", "_")}.json', output_dir)
 
-    if args.format == "json":
-        import json
-        full_path = os.path.join(output_dir, nama_data_json)
-        with open(full_path, 'w', encoding='utf-8') as f:
-            json.dump(updated_items, f, ensure_ascii=False, indent=4)
-        print(f"Data updated dengan rating dari ulasan di {full_path}")
+    import json
+    with open(json_path, 'w', encoding='utf-8') as f:
+        json.dump(updated_items, f, ensure_ascii=False, indent=4)
+
+    if args.format == "csv":
+        save_to_csv(updated_items, f"{base_name}.csv", output_dir)
+    elif args.format == "xlsx":
+        save_to_excel(updated_items, f"{base_name}.xlsx", output_dir)
+
+    print(f"Data updated dengan rating dari ulasan di {json_path}")
